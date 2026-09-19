@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 720" role="img" aria-label="Silhouette de profil">
+  <rect width="480" height="720" rx="32" fill="#151515"/>
+  <circle cx="246" cy="130" r="70" fill="#686868"/>
+  <path d="M205 207c67 7 105 50 105 119v296H202V361l-52 52-39-40 83-108 11-58Z" fill="#686868"/>
+  <path d="M204 622h46v70h-62l16-70Zm47 0h46l18 70h-64v-70Z" fill="#686868"/>
+</svg>

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="96" fill="#000000"/>
+  <!-- Pig head silhouette -->
+  <g fill="#ffffff">
+    <!-- Head -->
+    <ellipse cx="256" cy="232" rx="118" ry="108"/>
+    <!-- Ears -->
+    <path d="M150 150 L120 120 L168 168 Z"/>
+    <path d="M362 150 L392 120 L344 168 Z"/>
+    <!-- Snout -->
+    <ellipse cx="256" cy="282" rx="52" ry="38"/>
+    <!-- Nostrils -->
+    <ellipse cx="238" cy="282" rx="9" ry="13" fill="#000000"/>
+    <ellipse cx="274" cy="282" rx="9" ry="13" fill="#000000"/>
+  </g>
+  <!-- Red monocle accent -->
+  <circle cx="312" cy="210" r="34" fill="none" stroke="#dc2626" stroke-width="8"/>
+  <circle cx="312" cy="210" r="6" fill="#dc2626"/>
+</svg>

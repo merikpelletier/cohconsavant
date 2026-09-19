@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 480" role="img" aria-label="Portrait de face">
+  <rect width="480" height="480" rx="32" fill="#151515"/>
+  <circle cx="240" cy="170" r="105" fill="#686868"/>
+  <path d="M90 460c8-114 67-174 150-174s142 60 150 174H90Z" fill="#686868"/>
+</svg>

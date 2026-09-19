@@ -1,0 +1,19 @@
+{
+  "name": "Le Cochon Savant",
+  "short_name": "Cochon Savant",
+  "description": "Le Cochon Savant — écosystème créatif IA : modèles 3D, production IA et merchandising.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#dc2626",
+  "icons": [
+    {
+      "src": "/cochon-savant-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
