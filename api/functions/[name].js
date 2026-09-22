@@ -8,7 +8,7 @@ import { syncSupplierStock } from '../_lib/supplierStock.js';
 import { getUserBalance, importProducts, purchaseShopProduct } from '../_lib/shop.js';
 import { replicateGenerate } from '../_lib/replicateGenerate.js';
 import { generateCharacterSheet, generateVideo, mixAudioVideo } from '../_lib/replicateTools.js';
-import { createAuthorizeNetCheckout, purchaseTokens } from '../_lib/authorizeNet.js';
+import { createAuthorizeNetCheckout, purchaseMembership, purchaseTokens } from '../_lib/authorizeNet.js';
 import { getMemberDossiers, getMemberMessages, getStorySetup, getUserStorySessions, proxyImage, sendMemberContact } from '../_lib/community.js';
 import { getR2DownloadLink, purchaseDossierDigital } from '../_lib/downloads.js';
 import { gameCompleteLevel, gameEvaluateCreation, gameEvaluateInterpretation, gameGuidedVisit, gameStartLevel } from '../_lib/game.js';
@@ -106,6 +106,10 @@ async function runNamedFunction(name, payload, user, request) {
   if (name === 'purchaseTokens') {
     requireUser(user);
     return purchaseTokens(payload, user, request.headers.origin || 'https://le-cochon-savant.vercel.app');
+  }
+  if (name === 'purchaseMembership') {
+    requireUser(user);
+    return purchaseMembership(payload, user, request.headers.origin || 'https://le-cochon-savant.vercel.app');
   }
   if (name === 'getMemberDossiers') return getMemberDossiers(payload.memberEmail);
   if (name === 'getMemberMessages') {

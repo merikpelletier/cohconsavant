@@ -3,6 +3,7 @@ import { appClient } from '@/api/appClient';
 import { motion } from 'framer-motion';
 import { CheckCircle, Clock, XCircle } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
+import { openAuthorizeNetHostedPayment } from '@/lib/authorizeNetHostedPayment';
 
 const MEMBERSHIP_TYPES = [
   {
@@ -90,6 +91,27 @@ export default function Membership() {
     if (!selected || !user) return;
     setLoading(true);
     try {
+      // Determine if the selected tier is paid by asking the server.
+      // The server loads the real price from membership_pricings — we never trust a client price.
+      let paymentResult;
+      try {
+        const res = await appClient.functions.invoke('purchaseMembership', { membership_type: selected });
+        paymentResult = res.data;
+      } catch (err) {
+        // FREE_TIER means the price is $0 — fall through to plain application submission.
+        if (!err?.message?.includes('FREE_TIER') && !(err?.data?.error?.includes('FREE_TIER'))) throw err;
+        paymentResult = null;
+      }
+
+      if (paymentResult?.token) {
+        // Paid tier: redirect to Authorize.Net hosted payment page.
+        // The webhook (or return URL handler) will activate the membership after successful payment.
+        openAuthorizeNetHostedPayment(paymentResult);
+        // Do not set step here — the page will redirect away.
+        return;
+      }
+
+      // Free tier ($0): submit plain membership application as before.
       await appClient.entities.Membership.create({
         user_email: user.email,
         user_name: user.full_name,
