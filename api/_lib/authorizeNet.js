@@ -151,6 +151,30 @@ export async function purchaseMembership(payload, user, origin) {
   ]);
 }
 
+export async function purchaseMembership(payload, user, origin) {
+  if (!payload.membership_type) { const error = new Error('Membership type required'); error.status = 400; throw error; }
+  const [tier] = await readRows('membership_pricings', { filters: { membership_type: payload.membership_type, is_active: true }, limit: 1 });
+  if (!tier) { const error = new Error('Tier d\'adhésion invalide ou inactif'); error.status = 400; throw error; }
+  const price = Number(tier.price_monthly);
+  if (!price || price <= 0) { const error = new Error('FREE_TIER'); error.status = 422; throw error; }
+  const total = price.toFixed(2);
+  return hostedPayment({
+    transactionType: 'authCaptureTransaction', amount: total, currencyCode: 'CAD',
+    lineItems: { lineItem: [{ itemId: String(tier.id).substring(0, 31), name: `Adhésion ${tier.membership_type}`.substring(0, 31), description: `Abonnement mensuel — ${tier.membership_type}`, quantity: '1', unitPrice: total }] },
+    customer: { email: user.email },
+    userFields: { userField: [
+      { name: 'membership_type', value: tier.membership_type },
+      { name: 'user_email', value: user.email },
+    ] },
+  }, [
+    setting('hostedPaymentReturnOptions', { showReceipt: true, url: `${origin}/Membership?payment=success`, urlText: 'Retour aux adhésions', cancelUrl: `${origin}/Membership?payment=cancelled`, cancelUrlText: 'Annuler' }),
+    setting('hostedPaymentButtonOptions', { text: 'Payer maintenant' }),
+    setting('hostedPaymentStyleOptions', { bgColor: '#000000' }),
+    setting('hostedPaymentBillingAddressOptions', { show: true, required: true }),
+    setting('hostedPaymentCustomerOptions', { showEmail: true, requiredEmail: true }),
+  ]);
+}
+
 export async function purchaseTokens(payload, user, origin) {
   if (!payload.package_id) { const error = new Error('Package ID required'); error.status = 400; throw error; }
   const [tokenPackage] = await readRows('token_packages', { id: payload.package_id, limit: 1 });
