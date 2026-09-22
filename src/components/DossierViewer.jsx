@@ -455,14 +455,7 @@ export default function DossierViewer({ pages, onClose, dossier }) {
                         dangerouslySetInnerHTML={{ __html: page.content }}
                       />
                     )}
-                    {page?.audio_url && (
-                      <audio
-                        controls
-                        preload="metadata"
-                        src={page.audio_url}
-                        className="w-full mt-6"
-                      />
-                    )}
+                    {/* audio rendered by standalone player below */}
                   </div>
                 )}
               </div>
@@ -580,6 +573,24 @@ export default function DossierViewer({ pages, onClose, dossier }) {
             />
           )}
 
+          {/* Standalone audio player — shown whenever the page has audio_url, regardless of page type or content */}
+          {page?.audio_url && (
+            <div
+              className="absolute left-0 right-0 z-30 px-4 pointer-events-auto"
+              style={{ bottom: 'calc(48px + env(safe-area-inset-bottom))' }}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+            >
+              <audio
+                controls
+                preload="metadata"
+                src={page.audio_url}
+                className="w-full"
+              />
+            </div>
+          )}
+
           {/* Episode page */}
           {page?.page_type === 'episode' && (
             <div className="absolute inset-0 flex flex-col overflow-y-auto pointer-events-auto bg-black">
@@ -636,14 +647,7 @@ export default function DossierViewer({ pages, onClose, dossier }) {
                   dangerouslySetInnerHTML={{ __html: page.content }}
                 />
               )}
-              {page?.audio_url && (
-                <audio
-                  controls
-                  preload="metadata"
-                  src={page.audio_url}
-                  className="w-full mt-4 pointer-events-auto flex-shrink-0"
-                />
-              )}
+              {/* audio rendered by standalone player below */}
             </div>
           )}
 
