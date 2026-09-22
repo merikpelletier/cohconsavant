@@ -44,8 +44,18 @@ const textOutput = (output) => Array.isArray(output) ? output.join('') : String(
 function parseJson(text) {
   const cleaned = text.trim().replace(/^\`\`\`(?:json)?/i, '').replace(/\`\`\`$/, '').trim();
   const start = cleaned.indexOf('{'); const end = cleaned.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new Error('Claude n’a pas retourné une proposition structurée.');
-  return JSON.parse(cleaned.slice(start, end + 1));
+  if (start < 0 || end <= start) {
+    const error = new Error('La réponse du modèle ne contient pas une proposition JSON complète.');
+    error.status = 422;
+    throw error;
+  }
+  try {
+    return JSON.parse(cleaned.slice(start, end + 1));
+  } catch {
+    const error = new Error('La proposition JSON du modèle est incomplète ou tronquée. Réessayez la demande.');
+    error.status = 422;
+    throw error;
+  }
 }
 
 async function repoContext(instruction) {
@@ -55,8 +65,12 @@ async function repoContext(instruction) {
   const terms = instruction.toLowerCase().split(/[^a-z0-9à-ÿ]+/).filter((term) => term.length > 3);
   const allowPayments = instructionAllowsPayments(instruction);
   const paths = (tree.tree || []).filter((item) => item.type === 'blob' && item.size <= 60000 && allowedPath(item.path, { allowPayments }))
-    .map((item) => ({ ...item, score: terms.reduce((sum, term) => sum + (item.path.toLowerCase().includes(term) ? 3 : 0), 0)
-      + (/src\/pages\/Admin\.jsx|src\/App\.jsx|src\/pages\.config\.js/.test(item.path) ? 1 : 0) }))
+    .map((item) => {
+      const paymentPriority = allowPayments && /^(api\/_lib\/authorizeNet\.js|api\/webhooks\/authorize-net\.js|api\/functions\/\[name\]\.js|src\/pages\/Membership\.jsx|src\/lib\/authorizeNetHostedPayment\.js|src\/components\/admin\/AdminMembershipPricing\.jsx)$/.test(item.path) ? 25 : 0;
+      return { ...item, score: terms.reduce((sum, term) => sum + (item.path.toLowerCase().includes(term) ? 3 : 0), 0)
+        + paymentPriority
+        + (/src\/pages\/Admin\.jsx|src\/App\.jsx|src\/pages\.config\.js/.test(item.path) ? 1 : 0) };
+    })
     .sort((a, b) => b.score - a.score || a.size - b.size).slice(0, 12);
   const files = [];
   let total = 0;
@@ -102,7 +116,7 @@ export async function proposeAdminCodeChange(payload, user) {
   const prompt = `Demande administrateur: ${instruction}\n\nFichiers actuels:\n` + context.files.map((file) => `--- ${file.path}\n${file.content}`).join('\n');
   const system = `Tu es le développeur prudent du site Le Cochon Savant. Réponds uniquement en JSON valide: {"summary":"résumé français","warnings":["..."],"files":[{"path":"...","content":"contenu complet","reason":"..."}]}. Modifie au maximum 6 fichiers. Utilise seulement les chemins fournis ou crée un fichier sous src/components/admin. Ne touche jamais aux secrets, paiements, authentification, autorisations ou déploiement sauf demande explicite. Préserve tout le reste. Aucun markdown.`;
   const tracking = { user_id: user.id, user_email: user.email, tool_id: 'admin_coder', tokens_charged: 0 };
-  const output = await predictionOutput(await startModelPrediction(MODEL, { prompt, system_prompt: system, max_tokens: 12000 }, tracking), tracking);
+  const output = await predictionOutput(await startModelPrediction(MODEL, { prompt, system_prompt: system, max_tokens: 32000 }, tracking), tracking);
   const proposal = parseJson(textOutput(output));
   const originals = new Map(context.files.map((file) => [file.path, file]));
   const allowPayments = instructionAllowsPayments(instruction);
