@@ -1382,6 +1382,40 @@ function PageEditor({ dossier, pages, onClose }) {
                     className="bg-neutral-900 border-white/10 text-white text-sm"
                   />
                 </div>
+
+                {/* Audio upload */}
+                <div>
+                  <label className="text-white text-sm block mb-2">🎵 Audio (optional)</label>
+                  {editingPage.audio_url && (
+                    <audio controls src={editingPage.audio_url} className="w-full mb-2" />
+                  )}
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const { file_url } = await appClient.integrations.Core.UploadFile({ file });
+                      setEditingPage({ ...editingPage, audio_url: file_url });
+                    }}
+                    className="hidden"
+                    id="page-audio-upload"
+                  />
+                  <label htmlFor="page-audio-upload">
+                    <Button type="button" className="w-full bg-neutral-800 border border-white/20 text-white hover:bg-neutral-700 mb-2" asChild>
+                      <span>
+                        <Upload size={16} className="mr-2" />
+                        {editingPage.audio_url ? 'Change audio' : 'Add audio file'}
+                      </span>
+                    </Button>
+                  </label>
+                  <Input
+                    value={editingPage.audio_url || ''}
+                    onChange={(e) => setEditingPage({ ...editingPage, audio_url: e.target.value })}
+                    placeholder="Or paste an audio URL"
+                    className="bg-neutral-900 border-white/10 text-white text-sm"
+                  />
+                </div>
               </>
             )}
 
