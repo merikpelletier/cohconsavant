@@ -23,9 +23,9 @@ const instructionRequestsDocs = (instruction) =>
   /\b(documentation|docs?|markdown|readme|\.md)\b/i.test(String(instruction || ''));
 
 function configuration({ write = false } = {}) {
-  const token = process.env.GITHUB_REPO_TOKEN || null;
+  const token = process.env.GITHUB_TOKEN || process.env.GITHUB_REPO_TOKEN || null;
   if (write && !token) {
-    const error = new Error('GITHUB_REPO_TOKEN est requis uniquement pour créer une branche ou une demande de fusion GitHub.');
+    const error = new Error('GitHub write access is not configured for the coder.');
     error.status = 503;
     throw error;
   }
@@ -85,7 +85,7 @@ async function repoContext(instruction) {
 }
 
 export async function getAdminCoderStatus() {
-  const writeConfigured = Boolean(process.env.GITHUB_REPO_TOKEN);
+  const writeConfigured = Boolean(process.env.GITHUB_TOKEN || process.env.GITHUB_REPO_TOKEN);
   try {
     const repo = await github('');
     return {
@@ -111,90 +111,192 @@ export async function getAdminCoderStatus() {
 
 export async function proposeAdminCodeChange(payload, user) {
   const instruction = String(payload.instruction || '').trim();
-  if (instruction.length < 10 || instruction.length > 4000) { const error = new Error('Décrivez la modification en 10 à 4 000 caractères.'); error.status = 400; throw error; }
+  if (instruction.length < 10 || instruction.length > 4000) {
+    const error = new Error('Décrivez la modification en 10 à 4 000 caractères.');
+    error.status = 400;
+    throw error;
+  }
+
   const context = await repoContext(instruction);
-  if (!context.files.length) throw new Error('Aucun fichier de code approprié trouvé dans le dépôt.');
-  const prompt = `Demande administrateur: ${instruction}\n\nFichiers actuels:\n` + context.files.map((file) => `--- ${file.path}\n${file.content}`).join('\n');
-  const system = `Tu es le développeur prudent du site Le Cochon Savant. Ta tâche est de proposer de VRAIES MODIFICATIONS DE CODE, pas un plan ni un document de proposition. Réponds uniquement en JSON valide avec ce format: {"summary":"résumé français","warnings":["..."],"files":[{"path":"...","reason":"...","replacements":[{"search":"texte exact existant","replace":"nouveau texte"}]}]}. Modifie au maximum 6 fichiers. Pour chaque fichier existant, renvoie uniquement de petites opérations de remplacement exactes; ne renvoie jamais le contenu complet du fichier. Chaque "search" doit correspondre exactement à un passage unique du fichier fourni. Utilise en priorité les chemins explicitement nommés par l'administrateur. N'invente jamais un fichier Proposal, Plan, README, documentation ou .md à la place des changements demandés. Ne crée un nouveau fichier que si l'administrateur demande explicitement de créer un nouveau fichier ou composant; dans ce cas seulement, sous src/components/admin, utilise {"path":"...","reason":"...","content":"contenu complet"}. Ne touche jamais aux secrets, paiements, authentification, autorisations ou déploiement sauf demande explicite. Préserve tout le reste. Aucun markdown.`;
+  if (!context.files.length) {
+    const error = new Error('Aucun fichier source approprié trouvé dans le dépôt.');
+    error.status = 400;
+    throw error;
+  }
+
+  const sourceFiles = context.files.map((file) => file.path);
+  const prompt =
+    `Current Le Cochon Savant GitHub source files:\n${context.files.map((file) => `--- ${file.path}\n${file.content}`).join('\n\n')}\n\n` +
+    `Requested change:\n${instruction}\n\n` +
+    'Return only JSON with this exact shape: {"title":"short title","summary":"what changes and why","warnings":[],"files":["only changed files from the supplied source files"],"patch":"concise human-readable review diff","file_changes":[{"path":"one exact supplied source path","replacements":[{"find":"exact existing source text occurring once","replace":"complete replacement text"}]}]}. Use file_changes for real source-code changes. Every find value must be copied exactly from the supplied current source and occur exactly once. Keep the change minimal. Never invent files, documentation, proposal files, services, secrets, deployment infrastructure, or unrelated product behavior.';
+
   const tracking = { user_id: user.id, user_email: user.email, tool_id: 'admin_coder', tokens_charged: 0 };
-  const output = await predictionOutput(await startModelPrediction(MODEL, { prompt, system_prompt: system, max_tokens: 12000 }, tracking), tracking);
+  const output = await predictionOutput(
+    await startModelPrediction(MODEL, { prompt, max_tokens: 12000 }, tracking),
+    tracking
+  );
   const proposal = parseJson(textOutput(output));
   const originals = new Map(context.files.map((file) => [file.path, file]));
-  const allowPayments = instructionAllowsPayments(instruction);
-  const explicitPaths = new Set(explicitPathsFromInstruction(instruction));
-  const allowNewFile = instructionRequestsNewFile(instruction);
-  const allowDocs = instructionRequestsDocs(instruction);
+  const rawChanges = Array.isArray(proposal.file_changes) ? proposal.file_changes.slice(0, 6) : [];
   const files = [];
-  for (const file of (proposal.files || []).slice(0, 6)) {
-    if (!allowedPath(file.path, { allowPayments })) continue;
-    const original = originals.get(file.path);
 
-    if (!original) {
-      if (!allowNewFile) continue;
-      if (!file.path.startsWith('src/components/admin/') || typeof file.content !== 'string' || file.content.length > 120000) continue;
-      if (!allowDocs && /\.(md|txt)$/i.test(file.path)) continue;
-      files.push({ path: file.path, content: file.content, reason: String(file.reason || ''), original_sha: null, original_content: '' });
-      continue;
-    }
+  for (const rawChange of rawChanges) {
+    const path = String(rawChange?.path || '');
+    const original = originals.get(path);
+    if (!original || !sourceFiles.includes(path)) continue;
+    const replacements = Array.isArray(rawChange?.replacements) ? rawChange.replacements.slice(0, 20) : [];
+    if (!replacements.length) continue;
 
-    if (!Array.isArray(file.replacements) || !file.replacements.length) continue;
     let nextContent = original.content;
+    const safeReplacements = [];
     let valid = true;
 
-    for (const replacement of file.replacements) {
-      const search = typeof replacement?.search === 'string' ? replacement.search : '';
-      const replace = typeof replacement?.replace === 'string' ? replacement.replace : '';
-      if (!search) { valid = false; break; }
-
-      const first = nextContent.indexOf(search);
-      if (first < 0 || nextContent.indexOf(search, first + search.length) >= 0) {
-        valid = false;
-        break;
-      }
-      nextContent = nextContent.slice(0, first) + replace + nextContent.slice(first + search.length);
+    for (const rawReplacement of replacements) {
+      const find = typeof rawReplacement?.find === 'string' ? rawReplacement.find : '';
+      const replace = typeof rawReplacement?.replace === 'string' ? rawReplacement.replace : '';
+      if (!find || find.length > 30000 || replace.length > 30000) { valid = false; break; }
+      const matches = nextContent.split(find).length - 1;
+      if (matches !== 1) { valid = false; break; }
+      nextContent = nextContent.replace(find, replace);
+      safeReplacements.push({ find, replace });
     }
 
     if (!valid || nextContent === original.content || nextContent.length > 120000) continue;
     files.push({
-      path: file.path,
+      path,
+      reason: String(rawChange?.reason || proposal.summary || ''),
+      replacements: safeReplacements,
       content: nextContent,
-      reason: String(file.reason || ''),
       original_sha: original.sha,
       original_content: original.content,
     });
   }
+
   if (!files.length) {
-    const error = new Error('Claude n’a proposé aucun changement de code applicable. Les remplacements doivent correspondre exactement au code actuel.');
+    const error = new Error('Le coder n’a produit aucun changement de code applicable.');
     error.status = 422;
     throw error;
   }
-  if (explicitPaths.size && !files.some((file) => explicitPaths.has(file.path))) {
-    const error = new Error('Claude n’a modifié aucun des fichiers explicitement demandés.');
-    error.status = 422;
-    throw error;
-  }
-  if (!allowDocs && files.every((file) => /\.(md|txt)$/i.test(file.path))) {
-    const error = new Error('La proposition ne contient que de la documentation au lieu de modifications de code.');
-    error.status = 422;
-    throw error;
-  }
-  const [row] = await insertRows('admin_code_proposals', { created_by_id: user.id, created_by_email: user.email, instruction,
-    model_key: MODEL, repository: REPO, base_branch: DEFAULT_BRANCH, base_commit_sha: context.head,
-    summary: String(proposal.summary || 'Proposition de modification'), warnings: Array.isArray(proposal.warnings) ? proposal.warnings : [], files, status: 'proposed' });
+
+  const [row] = await insertRows('admin_code_proposals', {
+    created_by_id: user.id,
+    created_by_email: user.email,
+    instruction,
+    model_key: MODEL,
+    repository: REPO,
+    base_branch: DEFAULT_BRANCH,
+    base_commit_sha: context.head,
+    summary: String(proposal.summary || proposal.title || 'Proposition de modification'),
+    warnings: Array.isArray(proposal.warnings) ? proposal.warnings : [],
+    files,
+    status: 'proposed',
+  });
   return { proposal: row };
+}
+
+async function createReviewedCommit(files, title) {
+  const reference = await github(`/git/ref/heads/${encodeURIComponent(DEFAULT_BRANCH)}`);
+  const parentSha = String(reference?.object?.sha || '');
+  if (!parentSha) {
+    const error = new Error('GitHub main branch is unavailable.');
+    error.status = 502;
+    throw error;
+  }
+
+  const parent = await github(`/git/commits/${parentSha}`);
+  const baseTree = String(parent?.tree?.sha || '');
+  if (!baseTree) {
+    const error = new Error('GitHub source tree is unavailable.');
+    error.status = 502;
+    throw error;
+  }
+
+  const tree = [];
+  for (const file of files) {
+    const current = await github(`/contents/${file.path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(parentSha)}`);
+    const source = Buffer.from(current.content || '', 'base64').toString('utf8');
+    let content = source;
+
+    for (const replacement of Array.isArray(file.replacements) ? file.replacements : []) {
+      const find = String(replacement?.find || '');
+      const replace = String(replacement?.replace || '');
+      const matches = find ? content.split(find).length - 1 : 0;
+      if (matches !== 1) {
+        const error = new Error(`Cannot safely apply ${file.path}: expected one exact match, found ${matches}.`);
+        error.status = 409;
+        throw error;
+      }
+      content = content.replace(find, replace);
+    }
+
+    if (content === source) {
+      const error = new Error(`No source change produced for ${file.path}.`);
+      error.status = 409;
+      throw error;
+    }
+
+    const blob = await github('/git/blobs', {
+      method: 'POST',
+      body: JSON.stringify({ content, encoding: 'utf-8' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    tree.push({ path: file.path, mode: '100644', type: 'blob', sha: blob.sha });
+  }
+
+  const nextTree = await github('/git/trees', {
+    method: 'POST',
+    body: JSON.stringify({ base_tree: baseTree, tree }),
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const commit = await github('/git/commits', {
+    method: 'POST',
+    body: JSON.stringify({
+      message: `Admin coder: ${String(title || 'targeted change').slice(0, 160)}`,
+      tree: nextTree.sha,
+      parents: [parentSha],
+    }),
+    headers: { 'Content-Type': 'application/json' },
+  });
+  await github(`/git/refs/heads/${encodeURIComponent(DEFAULT_BRANCH)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ sha: commit.sha, force: false }),
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  return {
+    commit_sha: commit.sha,
+    commit_url: `https://github.com/${REPO}/commit/${commit.sha}`,
+    branch: DEFAULT_BRANCH,
+  };
 }
 
 export async function applyAdminCodeProposal(payload, user) {
   const [proposal] = await readRows('admin_code_proposals', { id: payload.id, limit: 1 });
-  if (!proposal || proposal.status !== 'proposed') { const error = new Error('Proposition introuvable ou déjà utilisée.'); error.status = 409; throw error; }
-  const branch = `claude/admin-${proposal.id.slice(0, 8)}`;
-  await github('/git/refs', { method: 'POST', body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: proposal.base_commit_sha }), headers: { 'Content-Type': 'application/json' } });
-  for (const file of proposal.files) {
-    await github(`/contents/${file.path}`, { method: 'PUT', body: JSON.stringify({ message: `Claude: ${proposal.summary}`, content: Buffer.from(file.content).toString('base64'), branch, ...(file.original_sha ? { sha: file.original_sha } : {}) }), headers: { 'Content-Type': 'application/json' } });
+  if (!proposal || proposal.status !== 'proposed') {
+    const error = new Error('Proposition introuvable ou déjà utilisée.');
+    error.status = 409;
+    throw error;
   }
-  const pr = await github('/pulls', { method: 'POST', body: JSON.stringify({ title: proposal.summary, head: branch, base: proposal.base_branch, body: `Proposition créée depuis l’administration.\n\nDemande: ${proposal.instruction}`, draft: true }), headers: { 'Content-Type': 'application/json' } });
-  const [updated] = await updateRow('admin_code_proposals', proposal.id, { status: 'submitted', branch_name: branch, pull_request_url: pr.html_url, pull_request_number: pr.number, submitted_at: new Date().toISOString(), submitted_by_id: user.id });
-  return { proposal: updated };
+
+  const files = Array.isArray(proposal.files) ? proposal.files.filter((file) =>
+    file?.path && Array.isArray(file?.replacements) && file.replacements.length
+  ) : [];
+  if (!files.length) {
+    const error = new Error('Cette proposition ne contient aucun changement de code applicable.');
+    error.status = 409;
+    throw error;
+  }
+
+  const result = await createReviewedCommit(files, proposal.summary);
+  const [updated] = await updateRow('admin_code_proposals', proposal.id, {
+    status: 'applied',
+    branch_name: DEFAULT_BRANCH,
+    pull_request_url: result.commit_url,
+    pull_request_number: null,
+    submitted_at: new Date().toISOString(),
+    submitted_by_id: user.id,
+  });
+  return { proposal: updated, github: result };
 }
 
 export async function listAdminCodeProposals() {
