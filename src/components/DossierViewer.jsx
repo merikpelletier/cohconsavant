@@ -455,6 +455,14 @@ export default function DossierViewer({ pages, onClose, dossier }) {
                         dangerouslySetInnerHTML={{ __html: page.content }}
                       />
                     )}
+                    {page?.audio_url && (
+                      <audio
+                        controls
+                        preload="metadata"
+                        src={page.audio_url}
+                        className="w-full mt-6"
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -626,6 +634,14 @@ export default function DossierViewer({ pages, onClose, dossier }) {
                     page?.text_color === 'black' ? 'text-black/90' : 'text-white/90'
                   }`}
                   dangerouslySetInnerHTML={{ __html: page.content }}
+                />
+              )}
+              {page?.audio_url && (
+                <audio
+                  controls
+                  preload="metadata"
+                  src={page.audio_url}
+                  className="w-full mt-4 pointer-events-auto flex-shrink-0"
                 />
               )}
             </div>
