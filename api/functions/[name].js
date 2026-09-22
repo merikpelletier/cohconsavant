@@ -29,6 +29,23 @@ const MEMBER_MANAGERS = new Set([
 
 const WRITE_ACTIONS = new Set(['save', 'create', 'update', 'delete', 'bulkCreate']);
 
+async function canReadDossierPages(user) {
+  if (user?.app_metadata?.role === 'admin') return true;
+  if (!user?.email) return false;
+  const memberships = await readRows('memberships', {
+    filters: { user_email: user.email, status: 'approved' },
+    limit: 1,
+  });
+  return memberships.length > 0;
+}
+
+async function requireDossierPageAccess(user) {
+  if (await canReadDossierPages(user)) return;
+  const error = new Error('Contenu réservé aux membres');
+  error.status = user ? 403 : 401;
+  throw error;
+}
+
 async function runNamedFunction(name, payload, user, request) {
   if (name === 'getAdminCoderStatus') { requireAdmin(user); return getAdminCoderStatus(); }
   if (name === 'listAdminCodeProposals') { requireAdmin(user); return listAdminCodeProposals(); }
@@ -261,6 +278,7 @@ async function runNamedFunction(name, payload, user, request) {
     return { item };
   }
   if (name === 'getDossierPages') {
+    await requireDossierPageAccess(user);
     const dossierId = payload.dossier_id || payload.dossierId;
     const filters = dossierId ? { dossier_id: dossierId } : {};
     if (payload.page_type) filters.page_type = payload.page_type;
@@ -269,7 +287,10 @@ async function runNamedFunction(name, payload, user, request) {
     if (payload.id) options.id = payload.id;
     return { pages: await readRows('dossier_pages', options) };
   }
-  if (name === 'getDossierPage') return { item: (await readRows('dossier_pages', { id: payload.id, limit: 1 }))[0] || null };
+  if (name === 'getDossierPage') {
+    await requireDossierPageAccess(user);
+    return { item: (await readRows('dossier_pages', { id: payload.id, limit: 1 }))[0] || null };
+  }
   if (name === 'getProduct') {
     const item = (await readRows('products', { id: payload.id, limit: 1 }))[0] || null;
     return { item, product: item };
