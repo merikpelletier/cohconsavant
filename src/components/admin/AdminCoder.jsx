@@ -18,7 +18,11 @@ export default function AdminCoder() {
     <div className="rounded-xl border border-white/15 bg-neutral-950 p-5">
       <div className="flex items-center gap-3"><Bot className="text-red-500"/><div><h2 className="text-xl font-semibold">Assistant de développement</h2><p className="text-sm text-white/55">Claude Sonnet 4.6 via Replicate</p></div></div>
       <div className="mt-4 flex gap-2 text-sm text-white/65"><ShieldCheck size={18} className="text-green-400"/>Claude propose; tu vérifies; une branche et une préversion sont créées. Aucune publication directe.</div>
-      {status.data && <p className="mt-3 text-xs text-white/45">Dépôt : {status.data.repository} · branche : {status.data.branch} · {status.data.configured ? 'connexion serveur prête' : 'connexion serveur à configurer'}</p>}
+      {status.data && <p className="mt-3 text-xs text-white/45">
+        Dépôt : {status.data.repository} · branche : {status.data.branch} ·
+        {status.data.proposal_ready ? ' lecture prête' : ' lecture à configurer'} ·
+        {status.data.write_configured ? ' écriture GitHub prête' : ' écriture GitHub non configurée'}
+      </p>}
     </div>
     <div className="rounded-xl border border-white/15 bg-neutral-950 p-5">
       <label htmlFor="coder-request" className="font-medium">Que veux-tu modifier?</label>
@@ -35,7 +39,23 @@ export default function AdminCoder() {
       <h3 className="text-lg font-semibold">{selected.summary}</h3>
       {(selected.warnings || []).map((warning) => <p key={warning} className="mt-2 text-sm text-amber-300">{warning}</p>)}
       <div className="mt-4 space-y-3">{(selected.files || []).map((file) => <details key={file.path} className="rounded border border-white/15 p-3"><summary className="cursor-pointer font-mono text-sm"><FileCode2 className="mr-2 inline" size={15}/>{file.path}</summary><p className="my-2 text-sm text-white/60">{file.reason}</p><pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded bg-black p-3 text-xs">{file.content}</pre></details>)}</div>
-      {selected.status === 'proposed' && <button disabled={apply.isPending} onClick={() => apply.mutate(selected.id)} className="mt-4 rounded-lg bg-white px-5 py-2.5 font-semibold text-black disabled:opacity-40">{apply.isPending ? 'Création de la préversion…' : 'Confirmer et créer la préversion'}</button>}
+      {selected.status === 'proposed' && <>
+        <button
+          disabled={apply.isPending || status.data?.write_configured === false}
+          onClick={() => apply.mutate(selected.id)}
+          className="mt-4 rounded-lg bg-white px-5 py-2.5 font-semibold text-black disabled:opacity-40"
+        >
+          {apply.isPending ? 'Création de la préversion…' : 'Confirmer et créer la préversion'}
+        </button>
+        {status.data?.write_configured === false && (
+          <p className="mt-3 text-sm text-red-400">
+            La proposition est prête, mais la connexion GitHub en écriture n’est pas configurée sur le serveur. GITHUB_REPO_TOKEN est requis pour créer la branche et la préversion.
+          </p>
+        )}
+        {apply.error && (
+          <p role="alert" className="mt-3 text-sm text-red-400">{apply.error.message}</p>
+        )}
+      </>}
       {selected.pull_request_url && <a className="mt-4 flex items-center gap-2 text-red-400 underline" target="_blank" rel="noreferrer" href={selected.pull_request_url}>Voir la proposition GitHub <ExternalLink size={15}/></a>}
     </div>}
     <div className="rounded-xl border border-white/15 bg-neutral-950 p-5"><h3 className="font-semibold">Historique</h3>
