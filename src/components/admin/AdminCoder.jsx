@@ -3,13 +3,24 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bot, ExternalLink, FileCode2, ShieldCheck } from 'lucide-react';
 import { appClient } from '@/api/appClient';
 
+const CODER_SURFACES = [
+  { type: 'page', key: 'Dossiers', label: 'Dossiers', route: '/Admin', source_files: ['src/components/admin/AdminDossiers.jsx', 'src/components/DossierViewer.jsx', 'api/functions/[name].js'] },
+  { type: 'page', key: 'Membership', label: 'Membership', route: '/Membership', source_files: ['src/pages/Membership.jsx', 'api/_lib/authorizeNet.js', 'api/functions/[name].js'] },
+  { type: 'page', key: 'Magazine', label: 'Magazine', route: '/Magazine', source_files: ['src/pages/Magazine.jsx', 'src/components/DossierViewer.jsx', 'api/functions/[name].js'] },
+  { type: 'page', key: 'Boutique', label: 'Boutique', route: '/Boutique', source_files: ['src/pages/Boutique.jsx', 'src/pages/ProductDetail.jsx', 'api/_lib/shop.js', 'api/functions/[name].js'] },
+  { type: 'page', key: 'Studio', label: 'Studio', route: '/Studio', source_files: ['src/pages/Studio.jsx', 'api/functions/[name].js'] },
+  { type: 'page', key: 'Index', label: 'Accueil', route: '/', source_files: ['src/pages/Index.jsx'] },
+];
+
 export default function AdminCoder() {
   const qc = useQueryClient();
   const [instruction, setInstruction] = useState('');
   const [selected, setSelected] = useState(null);
+  const [surfaceKey, setSurfaceKey] = useState('Dossiers');
+  const surface = CODER_SURFACES.find((item) => item.key === surfaceKey) || CODER_SURFACES[0];
   const status = useQuery({ queryKey: ['adminCoderStatus'], queryFn: async () => (await appClient.functions.invoke('getAdminCoderStatus')).data });
   const history = useQuery({ queryKey: ['adminCoderProposals'], queryFn: async () => (await appClient.functions.invoke('listAdminCodeProposals')).data.proposals });
-  const propose = useMutation({ mutationFn: async () => (await appClient.functions.invoke('proposeAdminCodeChange', { instruction })).data.proposal,
+  const propose = useMutation({ mutationFn: async () => (await appClient.functions.invoke('proposeAdminCodeChange', { instruction, surface })).data.proposal,
     onSuccess: (proposal) => { setSelected(proposal); qc.invalidateQueries({ queryKey: ['adminCoderProposals'] }); } });
   const apply = useMutation({ mutationFn: async (id) => (await appClient.functions.invoke('applyAdminCodeProposal', { id })).data.proposal,
     onSuccess: (proposal) => { setSelected(proposal); qc.invalidateQueries({ queryKey: ['adminCoderProposals'] }); } });
@@ -25,7 +36,13 @@ export default function AdminCoder() {
       </p>}
     </div>
     <div className="rounded-xl border border-white/15 bg-neutral-950 p-5">
-      <label htmlFor="coder-request" className="font-medium">Que veux-tu modifier?</label>
+      <label className="font-medium">Section à modifier</label>
+      <select value={surfaceKey} onChange={(e) => setSurfaceKey(e.target.value)}
+        className="mt-2 w-full rounded-lg border border-white/20 bg-black p-3 text-white">
+        {CODER_SURFACES.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+      </select>
+      <p className="mt-2 text-xs text-white/45">Sources : {surface.source_files.join(' · ')}</p>
+      <label htmlFor="coder-request" className="mt-4 block font-medium">Que veux-tu modifier?</label>
       <textarea id="coder-request" value={instruction} onChange={(e) => setInstruction(e.target.value)} rows={6} maxLength={4000}
         placeholder="Ex. Dans la page d’accueil, change le titre… Le reste doit demeurer identique."
         className="mt-2 w-full rounded-lg border border-white/20 bg-black p-3 text-white placeholder:text-white/30"/>
