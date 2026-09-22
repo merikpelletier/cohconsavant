@@ -12,6 +12,16 @@ const allowedPath = (path, { allowPayments = false } = {}) =>
 const instructionAllowsPayments = (instruction) =>
   /authorize\.?net|paiement|payment|abonnement|subscription|checkout|billing/i.test(String(instruction || ''));
 
+const explicitPathsFromInstruction = (instruction) =>
+  [...String(instruction || '').matchAll(/(?:src|api|docs|public)\/[a-zA-Z0-9_./()[\]-]+\.(?:js|jsx|ts|tsx|css|json|md|html|svg)/g)]
+    .map((match) => match[0]);
+
+const instructionRequestsNewFile = (instruction) =>
+  /\b(create|add|new|nouveau|nouvelle|cr[eé]er|ajouter)\b[^\n]{0,80}\b(file|fichier|component|composant|page|module)\b/i.test(String(instruction || ''));
+
+const instructionRequestsDocs = (instruction) =>
+  /\b(documentation|docs?|markdown|readme|\.md)\b/i.test(String(instruction || ''));
+
 function configuration({ write = false } = {}) {
   const token = process.env.GITHUB_REPO_TOKEN || null;
   if (write && !token) {
@@ -54,10 +64,15 @@ async function repoContext(instruction) {
   const tree = await github(`/git/trees/${commit.tree.sha}?recursive=1`);
   const terms = instruction.toLowerCase().split(/[^a-z0-9à-ÿ]+/).filter((term) => term.length > 3);
   const allowPayments = instructionAllowsPayments(instruction);
-  const paths = (tree.tree || []).filter((item) => item.type === 'blob' && item.size <= 60000 && allowedPath(item.path, { allowPayments }))
+  const explicitPaths = new Set(explicitPathsFromInstruction(instruction));
+  const candidates = (tree.tree || []).filter((item) => item.type === 'blob' && item.size <= 60000 && allowedPath(item.path, { allowPayments }));
+  const explicitItems = candidates.filter((item) => explicitPaths.has(item.path));
+  const rankedItems = candidates
+    .filter((item) => !explicitPaths.has(item.path))
     .map((item) => ({ ...item, score: terms.reduce((sum, term) => sum + (item.path.toLowerCase().includes(term) ? 3 : 0), 0)
       + (/src\/pages\/Admin\.jsx|src\/App\.jsx|src\/pages\.config\.js/.test(item.path) ? 1 : 0) }))
-    .sort((a, b) => b.score - a.score || a.size - b.size).slice(0, 12);
+    .sort((a, b) => b.score - a.score || a.size - b.size);
+  const paths = [...explicitItems, ...rankedItems].slice(0, 12);
   const files = [];
   let total = 0;
   for (const item of paths) {
@@ -100,19 +115,24 @@ export async function proposeAdminCodeChange(payload, user) {
   const context = await repoContext(instruction);
   if (!context.files.length) throw new Error('Aucun fichier de code approprié trouvé dans le dépôt.');
   const prompt = `Demande administrateur: ${instruction}\n\nFichiers actuels:\n` + context.files.map((file) => `--- ${file.path}\n${file.content}`).join('\n');
-  const system = `Tu es le développeur prudent du site Le Cochon Savant. Réponds uniquement en JSON valide avec ce format: {"summary":"résumé français","warnings":["..."],"files":[{"path":"...","reason":"...","replacements":[{"search":"texte exact existant","replace":"nouveau texte"}]}]}. Modifie au maximum 6 fichiers. Pour chaque fichier existant, renvoie uniquement de petites opérations de remplacement exactes; ne renvoie jamais le contenu complet du fichier. Chaque "search" doit correspondre exactement à un passage unique du fichier fourni. Utilise seulement les chemins fournis. Ne crée un nouveau fichier que sous src/components/admin, avec {"path":"...","reason":"...","content":"contenu complet"} uniquement dans ce cas. Ne touche jamais aux secrets, paiements, authentification, autorisations ou déploiement sauf demande explicite. Préserve tout le reste. Aucun markdown.`;
+  const system = `Tu es le développeur prudent du site Le Cochon Savant. Ta tâche est de proposer de VRAIES MODIFICATIONS DE CODE, pas un plan ni un document de proposition. Réponds uniquement en JSON valide avec ce format: {"summary":"résumé français","warnings":["..."],"files":[{"path":"...","reason":"...","replacements":[{"search":"texte exact existant","replace":"nouveau texte"}]}]}. Modifie au maximum 6 fichiers. Pour chaque fichier existant, renvoie uniquement de petites opérations de remplacement exactes; ne renvoie jamais le contenu complet du fichier. Chaque "search" doit correspondre exactement à un passage unique du fichier fourni. Utilise en priorité les chemins explicitement nommés par l'administrateur. N'invente jamais un fichier Proposal, Plan, README, documentation ou .md à la place des changements demandés. Ne crée un nouveau fichier que si l'administrateur demande explicitement de créer un nouveau fichier ou composant; dans ce cas seulement, sous src/components/admin, utilise {"path":"...","reason":"...","content":"contenu complet"}. Ne touche jamais aux secrets, paiements, authentification, autorisations ou déploiement sauf demande explicite. Préserve tout le reste. Aucun markdown.`;
   const tracking = { user_id: user.id, user_email: user.email, tool_id: 'admin_coder', tokens_charged: 0 };
   const output = await predictionOutput(await startModelPrediction(MODEL, { prompt, system_prompt: system, max_tokens: 12000 }, tracking), tracking);
   const proposal = parseJson(textOutput(output));
   const originals = new Map(context.files.map((file) => [file.path, file]));
   const allowPayments = instructionAllowsPayments(instruction);
+  const explicitPaths = new Set(explicitPathsFromInstruction(instruction));
+  const allowNewFile = instructionRequestsNewFile(instruction);
+  const allowDocs = instructionRequestsDocs(instruction);
   const files = [];
   for (const file of (proposal.files || []).slice(0, 6)) {
     if (!allowedPath(file.path, { allowPayments })) continue;
     const original = originals.get(file.path);
 
     if (!original) {
+      if (!allowNewFile) continue;
       if (!file.path.startsWith('src/components/admin/') || typeof file.content !== 'string' || file.content.length > 120000) continue;
+      if (!allowDocs && /\.(md|txt)$/i.test(file.path)) continue;
       files.push({ path: file.path, content: file.content, reason: String(file.reason || ''), original_sha: null, original_content: '' });
       continue;
     }
@@ -144,7 +164,17 @@ export async function proposeAdminCodeChange(payload, user) {
     });
   }
   if (!files.length) {
-    const error = new Error('Claude n’a proposé aucun changement applicable. Les remplacements doivent correspondre exactement au code actuel.');
+    const error = new Error('Claude n’a proposé aucun changement de code applicable. Les remplacements doivent correspondre exactement au code actuel.');
+    error.status = 422;
+    throw error;
+  }
+  if (explicitPaths.size && !files.some((file) => explicitPaths.has(file.path))) {
+    const error = new Error('Claude n’a modifié aucun des fichiers explicitement demandés.');
+    error.status = 422;
+    throw error;
+  }
+  if (!allowDocs && files.every((file) => /\.(md|txt)$/i.test(file.path))) {
+    const error = new Error('La proposition ne contient que de la documentation au lieu de modifications de code.');
     error.status = 422;
     throw error;
   }
