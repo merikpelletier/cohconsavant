@@ -348,11 +348,22 @@ export default function DossierViewer({ pages, onClose, dossier }) {
                 >⛶</button>
               </div>
             ) : (
-              <img
-                src={activeMediaUrl}
-                alt=""
-                className="absolute inset-0 w-full h-full object-contain"
-              />
+              <>
+                {page?.audio_url && (
+                  <div className="absolute inset-x-0 z-10 px-4 pointer-events-auto" style={{ top: 'calc(52px + env(safe-area-inset-top))' }}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onTouchMove={(e) => e.stopPropagation()}
+                    onTouchEnd={(e) => e.stopPropagation()}
+                  >
+                    <audio controls preload="metadata" src={page.audio_url} className="w-full" />
+                  </div>
+                )}
+                <img
+                  src={activeMediaUrl}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-contain"
+                />
+              </>
             )
           )}
 
@@ -362,6 +373,11 @@ export default function DossierViewer({ pages, onClose, dossier }) {
               className="absolute inset-0 overflow-y-auto pointer-events-auto bg-black pb-28"
               style={{ paddingTop: 'calc(52px + env(safe-area-inset-top))' }}
             >
+              {page?.audio_url && (
+                <div className="px-4 pb-2" onTouchStart={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+                  <audio controls preload="metadata" src={page.audio_url} className="w-full" />
+                </div>
+              )}
               <img src={activeMediaUrl} alt="" className="w-full h-auto" />
             </div>
           )}
@@ -370,7 +386,14 @@ export default function DossierViewer({ pages, onClose, dossier }) {
           {!isLandscape && page?.page_type === 'mixed' && page?.image_layout !== 'background' && (
             <div className="absolute inset-0 flex flex-col overflow-y-auto pointer-events-auto pb-20 pt-4">
               {(page?.image_layout === 'above' || (!page?.image_layout && activeMediaUrl)) && (
-                <img src={activeMediaUrl} alt="" className="w-full object-contain flex-shrink-0 cursor-pointer" style={{ maxHeight: '50vh' }} onClick={() => setFullscreenImage(activeMediaUrl)} />
+                <>
+                  {page?.audio_url && (
+                    <div className="px-4 pb-2" onTouchStart={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+                      <audio controls preload="metadata" src={page.audio_url} className="w-full" />
+                    </div>
+                  )}
+                  <img src={activeMediaUrl} alt="" className="w-full object-contain flex-shrink-0 cursor-pointer" style={{ maxHeight: '50vh' }} onClick={() => setFullscreenImage(activeMediaUrl)} />
+                </>
               )}
               <div className={`flex flex-col px-6 py-4 flex-1 ${page?.text_color === 'black' ? 'text-black' : 'text-white'}`}>
                 {page?.title && !page?.hide_title && (
@@ -444,6 +467,11 @@ export default function DossierViewer({ pages, onClose, dossier }) {
                 )}
                 {hasText && (
                   <div className={`flex flex-col justify-center px-10 py-12 overflow-y-auto ${activeMediaUrl ? 'w-1/2' : 'w-full'}`}>
+                    {page?.audio_url && (
+                      <div className="mb-4" onTouchStart={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+                        <audio controls preload="metadata" src={page.audio_url} className="w-full" />
+                      </div>
+                    )}
                     {page?.title && !page?.hide_title && (
                       <h2 className="text-3xl md:text-4xl font-extralight tracking-widest mb-6 text-white">
                         {page.title}
@@ -455,7 +483,6 @@ export default function DossierViewer({ pages, onClose, dossier }) {
                         dangerouslySetInnerHTML={{ __html: page.content }}
                       />
                     )}
-                    {/* audio rendered by standalone player below */}
                   </div>
                 )}
               </div>
@@ -573,23 +600,7 @@ export default function DossierViewer({ pages, onClose, dossier }) {
             />
           )}
 
-          {/* Standalone audio player — shown whenever the page has audio_url, regardless of page type or content */}
-          {page?.audio_url && (
-            <div
-              className="absolute left-0 right-0 z-30 px-4 pointer-events-auto"
-              style={{ bottom: 'calc(48px + env(safe-area-inset-bottom))' }}
-              onTouchStart={(e) => e.stopPropagation()}
-              onTouchMove={(e) => e.stopPropagation()}
-              onTouchEnd={(e) => e.stopPropagation()}
-            >
-              <audio
-                controls
-                preload="metadata"
-                src={page.audio_url}
-                className="w-full"
-              />
-            </div>
-          )}
+
 
           {/* Episode page */}
           {page?.page_type === 'episode' && (
@@ -639,6 +650,11 @@ export default function DossierViewer({ pages, onClose, dossier }) {
                   {page.title}
                 </h2>
               )}
+              {page?.audio_url && (
+                <div className="w-full mb-3 pointer-events-auto flex-shrink-0" onTouchStart={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+                  <audio controls preload="metadata" src={page.audio_url} className="w-full" />
+                </div>
+              )}
               {page?.content && (
                 <div
                   className={`w-full text-base md:text-lg font-light leading-relaxed overflow-y-auto pointer-events-auto flex-1 whitespace-pre-wrap ${
@@ -647,7 +663,6 @@ export default function DossierViewer({ pages, onClose, dossier }) {
                   dangerouslySetInnerHTML={{ __html: page.content }}
                 />
               )}
-              {/* audio rendered by standalone player below */}
             </div>
           )}
 
