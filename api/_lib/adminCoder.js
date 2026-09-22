@@ -7,18 +7,28 @@ const DEFAULT_BRANCH = process.env.GITHUB_DEFAULT_BRANCH || 'main';
 const allowedPath = (path) => /^(src|api|docs|public)\/[a-zA-Z0-9_./()[\]-]+\.(js|jsx|ts|tsx|css|json|md|html|svg)$/.test(path)
   && !/(\.env|secret|credential|package-lock|authorizeNet)/i.test(path);
 
-function configuration() {
-  if (!process.env.GITHUB_REPO_TOKEN) {
-    const error = new Error('Ajoutez GITHUB_REPO_TOKEN aux variables serveur Vercel pour permettre les propositions de code.'); error.status = 503; throw error;
+function configuration({ write = false } = {}) {
+  const token = process.env.GITHUB_REPO_TOKEN || null;
+  if (write && !token) {
+    const error = new Error('GITHUB_REPO_TOKEN est requis uniquement pour créer une branche ou une demande de fusion GitHub.');
+    error.status = 503;
+    throw error;
   }
-  return { token: process.env.GITHUB_REPO_TOKEN, repo: REPO };
+  return { token, repo: REPO };
 }
 
 async function github(path, options = {}) {
-  const { token, repo } = configuration();
+  const method = String(options.method || 'GET').toUpperCase();
+  const { token, repo } = configuration({ write: method !== 'GET' && method !== 'HEAD' });
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers || {}),
+  };
   const response = await fetch(`https://api.github.com/repos/${repo}${path}`, {
     ...options,
-    headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28', ...(options.headers || {}) },
+    headers,
   });
   const data = response.status === 204 ? null : await response.json();
   if (!response.ok) { const error = new Error(data?.message || `GitHub ${response.status}`); error.status = response.status; throw error; }
@@ -54,10 +64,28 @@ async function repoContext(instruction) {
 }
 
 export async function getAdminCoderStatus() {
-  const configured = Boolean(process.env.GITHUB_REPO_TOKEN);
-  if (!configured) return { configured, model: MODEL, repository: REPO, branch: DEFAULT_BRANCH };
-  const repo = await github('');
-  return { configured, model: MODEL, repository: repo.full_name, branch: repo.default_branch, private: repo.private };
+  const writeConfigured = Boolean(process.env.GITHUB_REPO_TOKEN);
+  try {
+    const repo = await github('');
+    return {
+      configured: true,
+      proposal_ready: true,
+      write_configured: writeConfigured,
+      model: MODEL,
+      repository: repo.full_name,
+      branch: repo.default_branch,
+      private: repo.private,
+    };
+  } catch {
+    return {
+      configured: false,
+      proposal_ready: false,
+      write_configured: writeConfigured,
+      model: MODEL,
+      repository: REPO,
+      branch: DEFAULT_BRANCH,
+    };
+  }
 }
 
 export async function proposeAdminCodeChange(payload, user) {
