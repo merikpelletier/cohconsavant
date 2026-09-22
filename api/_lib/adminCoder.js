@@ -4,8 +4,13 @@ import { predictionOutput, startModelPrediction } from './replicate.js';
 const MODEL = 'anthropic/claude-sonnet-4.6';
 const REPO = process.env.GITHUB_REPOSITORY || 'merikpelletier/cohconsavant';
 const DEFAULT_BRANCH = process.env.GITHUB_DEFAULT_BRANCH || 'main';
-const allowedPath = (path) => /^(src|api|docs|public)\/[a-zA-Z0-9_./()[\]-]+\.(js|jsx|ts|tsx|css|json|md|html|svg)$/.test(path)
-  && !/(\.env|secret|credential|package-lock|authorizeNet)/i.test(path);
+const allowedPath = (path, { allowPayments = false } = {}) =>
+  /^(src|api|docs|public)\/[a-zA-Z0-9_./()[\]-]+\.(js|jsx|ts|tsx|css|json|md|html|svg)$/.test(path)
+  && !/(\.env|secret|credential|package-lock)/i.test(path)
+  && (allowPayments || !/authorizeNet/i.test(path));
+
+const instructionAllowsPayments = (instruction) =>
+  /authorize\.?net|paiement|payment|abonnement|subscription|checkout|billing/i.test(String(instruction || ''));
 
 function configuration({ write = false } = {}) {
   const token = process.env.GITHUB_REPO_TOKEN || null;
@@ -48,7 +53,8 @@ async function repoContext(instruction) {
   const commit = await github(`/git/commits/${ref.object.sha}`);
   const tree = await github(`/git/trees/${commit.tree.sha}?recursive=1`);
   const terms = instruction.toLowerCase().split(/[^a-z0-9à-ÿ]+/).filter((term) => term.length > 3);
-  const paths = (tree.tree || []).filter((item) => item.type === 'blob' && item.size <= 60000 && allowedPath(item.path))
+  const allowPayments = instructionAllowsPayments(instruction);
+  const paths = (tree.tree || []).filter((item) => item.type === 'blob' && item.size <= 60000 && allowedPath(item.path, { allowPayments }))
     .map((item) => ({ ...item, score: terms.reduce((sum, term) => sum + (item.path.toLowerCase().includes(term) ? 3 : 0), 0)
       + (/src\/pages\/Admin\.jsx|src\/App\.jsx|src\/pages\.config\.js/.test(item.path) ? 1 : 0) }))
     .sort((a, b) => b.score - a.score || a.size - b.size).slice(0, 12);
@@ -99,13 +105,18 @@ export async function proposeAdminCodeChange(payload, user) {
   const output = await predictionOutput(await startModelPrediction(MODEL, { prompt, system_prompt: system, max_tokens: 12000 }, tracking), tracking);
   const proposal = parseJson(textOutput(output));
   const originals = new Map(context.files.map((file) => [file.path, file]));
+  const allowPayments = instructionAllowsPayments(instruction);
   const files = (proposal.files || []).filter((file) => {
-    if (!allowedPath(file.path) || typeof file.content !== 'string' || file.content.length > 120000) return false;
+    if (!allowedPath(file.path, { allowPayments }) || typeof file.content !== 'string' || file.content.length > 120000) return false;
     const original = originals.get(file.path);
     if (!original && !file.path.startsWith('src/components/admin/')) return false;
     return !original || file.content !== original.content;
   }).slice(0, 6).map((file) => ({ path: file.path, content: file.content, reason: String(file.reason || ''), original_sha: originals.get(file.path)?.sha || null, original_content: originals.get(file.path)?.content || '' }));
-  if (!files.length) throw new Error('Claude n’a proposé aucun changement autorisé.');
+  if (!files.length) {
+    const error = new Error('Claude n’a proposé aucun changement autorisé pour cette demande.');
+    error.status = 422;
+    throw error;
+  }
   const [row] = await insertRows('admin_code_proposals', { created_by_id: user.id, created_by_email: user.email, instruction,
     model_key: MODEL, repository: REPO, base_branch: DEFAULT_BRANCH, base_commit_sha: context.head,
     summary: String(proposal.summary || 'Proposition de modification'), warnings: Array.isArray(proposal.warnings) ? proposal.warnings : [], files, status: 'proposed' });
