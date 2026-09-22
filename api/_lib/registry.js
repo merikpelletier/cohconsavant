@@ -125,7 +125,7 @@ export const MANAGER_TABLES = Object.freeze({
 });
 
 export const PUBLIC_READ_TABLES = new Set([
-  'dossier_categories', 'dossier_classes', 'dossier_pages', 'dossiers',
+  'dossier_categories', 'dossier_classes', 'dossiers',
   'editable_contents', 'game_theme_assets', 'game_themes', 'member_posts',
   'member_profiles', 'membership_pricings', 'personality_questions',
   'personality_results', 'products', 'profile_placeholders', 'quiz_questions',
