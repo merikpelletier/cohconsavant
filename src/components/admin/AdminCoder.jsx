@@ -17,7 +17,7 @@ export default function AdminCoder() {
   return <div className="space-y-5 text-white">
     <div className="rounded-xl border border-white/15 bg-neutral-950 p-5">
       <div className="flex items-center gap-3"><Bot className="text-red-500"/><div><h2 className="text-xl font-semibold">Assistant de développement</h2><p className="text-sm text-white/55">Claude Sonnet 4.6 via Replicate</p></div></div>
-      <div className="mt-4 flex gap-2 text-sm text-white/65"><ShieldCheck size={18} className="text-green-400"/>Claude propose; tu vérifies; une branche et une préversion sont créées. Aucune publication directe.</div>
+      <div className="mt-4 flex gap-2 text-sm text-white/65"><ShieldCheck size={18} className="text-green-400"/>Claude propose; tu vérifies; après confirmation, le changement est appliqué directement sur GitHub main et Vercel déploie automatiquement.</div>
       {status.data && <p className="mt-3 text-xs text-white/45">
         Dépôt : {status.data.repository} · branche : {status.data.branch} ·
         {status.data.proposal_ready ? ' lecture prête' : ' lecture à configurer'} ·
@@ -45,18 +45,18 @@ export default function AdminCoder() {
           onClick={() => apply.mutate(selected.id)}
           className="mt-4 rounded-lg bg-white px-5 py-2.5 font-semibold text-black disabled:opacity-40"
         >
-          {apply.isPending ? 'Création de la préversion…' : 'Confirmer et créer la préversion'}
+          {apply.isPending ? 'Application sur GitHub…' : 'Confirmer et appliquer sur GitHub'}
         </button>
         {status.data?.write_configured === false && (
           <p className="mt-3 text-sm text-red-400">
-            La proposition est prête, mais la connexion GitHub en écriture n’est pas configurée sur le serveur. GITHUB_REPO_TOKEN est requis pour créer la branche et la préversion.
+            La proposition est prête, mais la connexion GitHub en écriture n’est pas configurée sur le serveur.
           </p>
         )}
         {apply.error && (
           <p role="alert" className="mt-3 text-sm text-red-400">{apply.error.message}</p>
         )}
       </>}
-      {selected.pull_request_url && <a className="mt-4 flex items-center gap-2 text-red-400 underline" target="_blank" rel="noreferrer" href={selected.pull_request_url}>Voir la proposition GitHub <ExternalLink size={15}/></a>}
+      {selected.pull_request_url && <a className="mt-4 flex items-center gap-2 text-red-400 underline" target="_blank" rel="noreferrer" href={selected.pull_request_url}>Voir le commit GitHub <ExternalLink size={15}/></a>}
     </div>}
     <div className="rounded-xl border border-white/15 bg-neutral-950 p-5"><h3 className="font-semibold">Historique</h3>
       <div className="mt-3 space-y-2">{(history.data || []).map((item) => <button key={item.id} onClick={() => setSelected(item)} className="block w-full rounded border border-white/10 p-3 text-left"><span>{item.summary}</span><span className="float-right text-xs uppercase text-white/40">{item.status}</span></button>)}</div>
