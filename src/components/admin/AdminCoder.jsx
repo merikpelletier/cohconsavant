@@ -25,7 +25,7 @@ export default function AdminCoder() {
       <textarea id="coder-request" value={instruction} onChange={(e) => setInstruction(e.target.value)} rows={6} maxLength={4000}
         placeholder="Ex. Dans la page d’accueil, change le titre… Le reste doit demeurer identique."
         className="mt-2 w-full rounded-lg border border-white/20 bg-black p-3 text-white placeholder:text-white/30"/>
-      <button disabled={!status.data?.configured || instruction.trim().length < 10 || propose.isPending}
+      <button disabled={instruction.trim().length < 10 || propose.isPending}
         onClick={() => propose.mutate()} className="mt-3 rounded-lg bg-red-600 px-5 py-2.5 font-semibold disabled:opacity-35">
         {propose.isPending ? 'Claude analyse le site…' : 'Préparer une proposition'}
       </button>
