@@ -12,15 +12,6 @@ const allowedPath = (path, { allowPayments = false } = {}) =>
 const instructionAllowsPayments = (instruction) =>
   /authorize\.?net|paiement|payment|abonnement|subscription|checkout|billing/i.test(String(instruction || ''));
 
-const explicitPathsFromInstruction = (instruction) =>
-  [...String(instruction || '').matchAll(/(?:src|api|docs|public)\/[a-zA-Z0-9_./()[\]-]+\.(?:js|jsx|ts|tsx|css|json|md|html|svg)/g)]
-    .map((match) => match[0]);
-
-const instructionRequestsNewFile = (instruction) =>
-  /\b(create|add|new|nouveau|nouvelle|cr[eé]er|ajouter)\b[^\n]{0,80}\b(file|fichier|component|composant|page|module)\b/i.test(String(instruction || ''));
-
-const instructionRequestsDocs = (instruction) =>
-  /\b(documentation|docs?|markdown|readme|\.md)\b/i.test(String(instruction || ''));
 
 function configuration({ write = false } = {}) {
   const token = process.env.GITHUB_TOKEN || process.env.GITHUB_REPO_TOKEN || null;
@@ -58,28 +49,19 @@ function parseJson(text) {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
-async function repoContext(instruction) {
+async function sourceContext(sourceFiles) {
   const ref = await github(`/git/ref/heads/${encodeURIComponent(DEFAULT_BRANCH)}`);
-  const commit = await github(`/git/commits/${ref.object.sha}`);
-  const tree = await github(`/git/trees/${commit.tree.sha}?recursive=1`);
-  const terms = instruction.toLowerCase().split(/[^a-z0-9à-ÿ]+/).filter((term) => term.length > 3);
-  const allowPayments = instructionAllowsPayments(instruction);
-  const explicitPaths = new Set(explicitPathsFromInstruction(instruction));
-  const candidates = (tree.tree || []).filter((item) => item.type === 'blob' && item.size <= 60000 && allowedPath(item.path, { allowPayments }));
-  const explicitItems = candidates.filter((item) => explicitPaths.has(item.path));
-  const rankedItems = candidates
-    .filter((item) => !explicitPaths.has(item.path))
-    .map((item) => ({ ...item, score: terms.reduce((sum, term) => sum + (item.path.toLowerCase().includes(term) ? 3 : 0), 0)
-      + (/src\/pages\/Admin\.jsx|src\/App\.jsx|src\/pages\.config\.js/.test(item.path) ? 1 : 0) }))
-    .sort((a, b) => b.score - a.score || a.size - b.size);
-  const paths = [...explicitItems, ...rankedItems].slice(0, 12);
   const files = [];
-  let total = 0;
-  for (const item of paths) {
-    const file = await github(`/contents/${item.path}?ref=${encodeURIComponent(DEFAULT_BRANCH)}`);
+  for (const rawPath of sourceFiles.slice(0, 6)) {
+    const path = String(rawPath || '').trim();
+    if (!path || !allowedPath(path, { allowPayments: true })) {
+      const error = new Error(`Source file not allowed: ${path || '(empty)'}`);
+      error.status = 400;
+      throw error;
+    }
+    const file = await github(`/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(DEFAULT_BRANCH)}`);
     const content = Buffer.from(file.content || '', 'base64').toString('utf8');
-    if (total + content.length > 180000) continue;
-    total += content.length; files.push({ path: item.path, sha: file.sha, content });
+    files.push({ path, sha: file.sha, content });
   }
   return { head: ref.object.sha, files };
 }
@@ -117,15 +99,18 @@ export async function proposeAdminCodeChange(payload, user) {
     throw error;
   }
 
-  const context = await repoContext(instruction);
-  if (!context.files.length) {
-    const error = new Error('Aucun fichier source approprié trouvé dans le dépôt.');
+  const surface = payload.surface && typeof payload.surface === 'object' ? payload.surface : {};
+  const sourceFiles = Array.isArray(surface.source_files)
+    ? surface.source_files.map((path) => String(path || '').trim()).filter(Boolean).slice(0, 6)
+    : [];
+  if (!sourceFiles.length) {
+    const error = new Error('Aucun fichier source n’est enregistré pour cette section.');
     error.status = 400;
     throw error;
   }
-
-  const sourceFiles = context.files.map((file) => file.path);
+  const context = await sourceContext(sourceFiles);
   const prompt =
+    `Selected Le Cochon Savant surface:\n${JSON.stringify({ type: surface.type, key: surface.key, label: surface.label, route: surface.route, source_files: sourceFiles })}\n\n` +
     `Current Le Cochon Savant GitHub source files:\n${context.files.map((file) => `--- ${file.path}\n${file.content}`).join('\n\n')}\n\n` +
     `Requested change:\n${instruction}\n\n` +
     'Return only JSON with this exact shape: {"title":"short title","summary":"what changes and why","warnings":[],"files":["only changed files from the supplied source files"],"patch":"concise human-readable review diff","file_changes":[{"path":"one exact supplied source path","replacements":[{"find":"exact existing source text occurring once","replace":"complete replacement text"}]}]}. Use file_changes for real source-code changes. Every find value must be copied exactly from the supplied current source and occur exactly once. Keep the change minimal. Never invent files, documentation, proposal files, services, secrets, deployment infrastructure, or unrelated product behavior.';
