@@ -100,20 +100,51 @@ export async function proposeAdminCodeChange(payload, user) {
   const context = await repoContext(instruction);
   if (!context.files.length) throw new Error('Aucun fichier de code approprié trouvé dans le dépôt.');
   const prompt = `Demande administrateur: ${instruction}\n\nFichiers actuels:\n` + context.files.map((file) => `--- ${file.path}\n${file.content}`).join('\n');
-  const system = `Tu es le développeur prudent du site Le Cochon Savant. Réponds uniquement en JSON valide: {"summary":"résumé français","warnings":["..."],"files":[{"path":"...","content":"contenu complet","reason":"..."}]}. Modifie au maximum 6 fichiers. Utilise seulement les chemins fournis ou crée un fichier sous src/components/admin. Ne touche jamais aux secrets, paiements, authentification, autorisations ou déploiement sauf demande explicite. Préserve tout le reste. Aucun markdown.`;
+  const system = `Tu es le développeur prudent du site Le Cochon Savant. Réponds uniquement en JSON valide avec ce format: {"summary":"résumé français","warnings":["..."],"files":[{"path":"...","reason":"...","replacements":[{"search":"texte exact existant","replace":"nouveau texte"}]}]}. Modifie au maximum 6 fichiers. Pour chaque fichier existant, renvoie uniquement de petites opérations de remplacement exactes; ne renvoie jamais le contenu complet du fichier. Chaque "search" doit correspondre exactement à un passage unique du fichier fourni. Utilise seulement les chemins fournis. Ne crée un nouveau fichier que sous src/components/admin, avec {"path":"...","reason":"...","content":"contenu complet"} uniquement dans ce cas. Ne touche jamais aux secrets, paiements, authentification, autorisations ou déploiement sauf demande explicite. Préserve tout le reste. Aucun markdown.`;
   const tracking = { user_id: user.id, user_email: user.email, tool_id: 'admin_coder', tokens_charged: 0 };
   const output = await predictionOutput(await startModelPrediction(MODEL, { prompt, system_prompt: system, max_tokens: 12000 }, tracking), tracking);
   const proposal = parseJson(textOutput(output));
   const originals = new Map(context.files.map((file) => [file.path, file]));
   const allowPayments = instructionAllowsPayments(instruction);
-  const files = (proposal.files || []).filter((file) => {
-    if (!allowedPath(file.path, { allowPayments }) || typeof file.content !== 'string' || file.content.length > 120000) return false;
+  const files = [];
+  for (const file of (proposal.files || []).slice(0, 6)) {
+    if (!allowedPath(file.path, { allowPayments })) continue;
     const original = originals.get(file.path);
-    if (!original && !file.path.startsWith('src/components/admin/')) return false;
-    return !original || file.content !== original.content;
-  }).slice(0, 6).map((file) => ({ path: file.path, content: file.content, reason: String(file.reason || ''), original_sha: originals.get(file.path)?.sha || null, original_content: originals.get(file.path)?.content || '' }));
+
+    if (!original) {
+      if (!file.path.startsWith('src/components/admin/') || typeof file.content !== 'string' || file.content.length > 120000) continue;
+      files.push({ path: file.path, content: file.content, reason: String(file.reason || ''), original_sha: null, original_content: '' });
+      continue;
+    }
+
+    if (!Array.isArray(file.replacements) || !file.replacements.length) continue;
+    let nextContent = original.content;
+    let valid = true;
+
+    for (const replacement of file.replacements) {
+      const search = typeof replacement?.search === 'string' ? replacement.search : '';
+      const replace = typeof replacement?.replace === 'string' ? replacement.replace : '';
+      if (!search) { valid = false; break; }
+
+      const first = nextContent.indexOf(search);
+      if (first < 0 || nextContent.indexOf(search, first + search.length) >= 0) {
+        valid = false;
+        break;
+      }
+      nextContent = nextContent.slice(0, first) + replace + nextContent.slice(first + search.length);
+    }
+
+    if (!valid || nextContent === original.content || nextContent.length > 120000) continue;
+    files.push({
+      path: file.path,
+      content: nextContent,
+      reason: String(file.reason || ''),
+      original_sha: original.sha,
+      original_content: original.content,
+    });
+  }
   if (!files.length) {
-    const error = new Error('Claude n’a proposé aucun changement autorisé pour cette demande.');
+    const error = new Error('Claude n’a proposé aucun changement applicable. Les remplacements doivent correspondre exactement au code actuel.');
     error.status = 422;
     throw error;
   }
