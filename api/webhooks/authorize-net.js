@@ -26,6 +26,17 @@ async function signatureIsValid(body, signature) {
   return received.length === computed.length && timingSafeEqual(received, computed);
 }
 
+async function activateMembership(email, membershipType) {
+  if (!email || !membershipType) return;
+  const [existing] = await readRows('memberships', { filters: { user_email: email }, limit: 1 });
+  const now = new Date().toISOString();
+  if (existing) {
+    await updateRow('memberships', existing.id, { membership_type: membershipType, status: 'approved', approved_at: now });
+  } else {
+    await insertRows('memberships', { user_email: email, membership_type: membershipType, status: 'approved', approved_at: now });
+  }
+}
+
 async function creditTokens(email, amount, transactionId) {
   if (!email || !amount) return;
   const [existingTransaction] = await readRows('token_transactions', { filters: { payment_id: transactionId }, limit: 1 });
@@ -58,6 +69,8 @@ export default async function handler(request, response) {
       try { items = JSON.parse(field('cart_data') || '[]'); } catch { items = []; }
       const tokenAmount = Number(field('token_amount') || 0);
       if (tokenAmount > 0) await creditTokens(email, tokenAmount, transactionId);
+      const membershipType = field('membership_type') || '';
+      if (membershipType) await activateMembership(email, membershipType);
       const subtotal = amount / 1.14975;
       const [existingOrder] = await readRows('orders', { filters: { order_id: transactionId }, limit: 1 });
       if (!existingOrder) {
