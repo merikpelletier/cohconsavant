@@ -55,15 +55,7 @@ export default function Magazine() {
     }
   }, [dossierId, dossiers.length]);
 
-  const { data: allPages = [] } = useQuery({
-    queryKey: ['dossierPages'],
-    queryFn: async () => {
-      const res = await appClient.functions.invoke('getDossierPages', {});
-      return res.data.pages;
-    },
-    staleTime: 0,
-    refetchOnWindowFocus: true,
-  });
+  const [membershipRequired, setMembershipRequired] = useState(false);
 
   const handleTouchStart = (e) => {
     if (e.target.closest('button, a, video, input, [role="button"]')) return;
@@ -124,9 +116,17 @@ export default function Magazine() {
   }, [currentDossierIndex, viewingDossier, dossiers.length]);
 
   const openDossier = async (dossier) => {
-    const res = await appClient.functions.invoke('getDossierPages', { dossier_id: dossier.id });
-    const freshPages = res.data.pages;
-    setViewingDossier({ ...dossier, pages: freshPages });
+    try {
+      const res = await appClient.functions.invoke('getDossierPages', { dossier_id: dossier.id });
+      const freshPages = res.data.pages;
+      setViewingDossier({ ...dossier, pages: freshPages });
+    } catch (error) {
+      if (error?.status === 401 || error?.status === 403) {
+        setMembershipRequired(true);
+        return;
+      }
+      throw error;
+    }
   };
 
   if (isLoading) {
@@ -321,6 +321,38 @@ export default function Magazine() {
           />
         ))}
       </div>
+
+      {membershipRequired && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setMembershipRequired(false)}
+        >
+          <div
+            className="w-full max-w-md bg-white text-black p-7 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-2xl font-black mb-3">Contenu réservé aux membres</h2>
+            <p className="text-sm text-black/70 mb-6">
+              Un abonnement actif est requis pour consulter les pages de ce dossier.
+            </p>
+            <div className="flex gap-3">
+              <Link
+                to="/Membership"
+                className="bg-red-600 text-white px-5 py-3 font-bold hover:bg-red-500 transition-colors"
+                onClick={() => setMembershipRequired(false)}
+              >
+                Devenir membre
+              </Link>
+              <button
+                onClick={() => setMembershipRequired(false)}
+                className="border border-black/20 px-5 py-3 font-semibold"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Dossier Viewer */}
       {viewingDossier && viewingDossier.pages?.length > 0 && (
