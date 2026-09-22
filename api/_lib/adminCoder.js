@@ -289,7 +289,7 @@ export async function applyAdminCodeProposal(payload, user) {
 
   const result = await createReviewedCommit(files, proposal.summary);
   const [updated] = await updateRow('admin_code_proposals', proposal.id, {
-    status: 'applied',
+    status: 'submitted',
     branch_name: DEFAULT_BRANCH,
     pull_request_url: result.commit_url,
     pull_request_number: null,
